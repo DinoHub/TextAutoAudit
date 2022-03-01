@@ -12,6 +12,8 @@ dataset_folder = dataset.get_local_copy()
 
 model_path = StorageManager.download_folder("s3://experiment-logging/storage/all-mpnet-base-v2","modules/sentence_transformers")
 
+import sys
+sys.path.append('sentence-transformers')
 import pyarrow.parquet as pq
 import pandas as pd
 import os
@@ -21,7 +23,7 @@ import re
 from tqdm import tqdm
 from spellchecker import SpellChecker
 from transformers import AutoTokenizer
-from modules.sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer, util
 from clearml import Task, Dataset, Logger
 
 class AutoAudit:
