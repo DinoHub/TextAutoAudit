@@ -10,10 +10,10 @@ logger = task.get_logger()
 dataset = Dataset.get(dataset_name="c4_raw_clean", dataset_project="datasets/c4")
 dataset_folder = dataset.get_local_copy()
 
-model_path = StorageManager.download_folder("s3://experiment-logging/storage/all-mpnet-base-v2","modules/sentence_transformers")
+model_path = StorageManager.download_folder("s3://experiment-logging/storage/all-mpnet-base-v2")
 
 import sys
-sys.path.append('sentence-transformers')
+sys.path.append('modules/sentence-transformers')
 import pyarrow.parquet as pq
 import pandas as pd
 import os
@@ -25,6 +25,8 @@ from spellchecker import SpellChecker
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
 from clearml import Task, Dataset, Logger
+import plotly.express as px
+import itertools
 
 class AutoAudit:
 
@@ -36,13 +38,25 @@ class AutoAudit:
         self.bpe_tokenizer = AutoTokenizer.from_pretrained("modules/tokenizers/byte-pair") #gpt2
         self.spell = SpellChecker()
 
-    def gen_stats(self, text):
+    def chunks(self, lst, n):
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    def gen_stats(self, text, batch_size):
         doc = self.nlp(text)
         word_len = len([token.text for token in doc])
-        sent_len = len([sent.text for sent in doc.sents])
-        wp_len = len(self.wp_tokenizer(text, truncation=False)['input_ids'])
-        sp_len = len(self.sp_tokenizer(text, truncation=False)['input_ids'])
-        bpe_len = len(self.bpe_tokenizer(text, truncation=False)['input_ids'])
+        sents = [sent.text for sent in doc.sents]
+        sent_len = len(sents)
+        if batch_size>0:
+            batch_sents = self.chunks(sents,batch_size)
+            for batch in batch_sents:
+                wp_len = len(list(itertools.chain.from_iterable(self.wp_tokenizer(batch, truncation=False)['input_ids'])))
+                sp_len = len(list(itertools.chain.from_iterable(self.sp_tokenizer(batch, truncation=False)['input_ids'])))
+                bpe_len = len(list(itertools.chain.from_iterable(self.bpe_tokenizer(batch, truncation=False)['input_ids'])))
+        else:
+            wp_len = len(self.wp_tokenizer(text, truncation=False)['input_ids'])
+            sp_len = len(self.sp_tokenizer(text, truncation=False)['input_ids'])
+            bpe_len = len(self.bpe_tokenizer(text, truncation=False)['input_ids'])
         return word_len, sent_len, wp_len, sp_len, bpe_len
 
     def sent_proc(self, model, text):
@@ -81,16 +95,36 @@ if __name__ == "__main__":
     spell_diff_list = []
 
     for i, (raw, clean) in tqdm(enumerate(zip(raw_text_list,clean_text_list)), total = len(raw_text_list)):
-        word_len, sent_len, wp_len, sp_len, bpe_len = audit.gen_stats(raw)
+        word_len, sent_len, wp_len, sp_len, bpe_len = audit.gen_stats(raw, batch_size = 30)
         word_len_list.append(word_len)
         sent_len_list.append(sent_len)
         wp_len_list.append(wp_len)
         sp_len_list.append(sp_len)
         bpe_len_list.append(bpe_len)
+        stat_df = pd.DataFrame()
+        stat_df['word_len'] = word_len_list
+        stat_df['sent_len'] = sent_len_list
+        stat_df['wp_len'] = wp_len_list
+        stat_df['sp_len'] = sp_len_list
+        stat_df['bpe_len'] = bpe_len_list
+        fig_1 = px.histogram(stat_df, x='word_len')
+        fig_2 = px.histogram(stat_df, x='sent_len')
+        fig_3 = px.histogram(stat_df, x='wp_len')
+        fig_4 = px.histogram(stat_df, x='sp_len')
+        fig_5 = px.histogram(stat_df, x='bpe_len')
+        logger.report_plotly(title="No. of Words Distribution", iteration=i, figure=fig_1, series="")
+        logger.report_plotly(title="No. of Sentences Distribution", iteration=i, figure=fig_2, series="")
+        logger.report_plotly(title="No. of WordPieces Tokens Distribution", iteration=i, figure=fig_3, series="")
+        logger.report_plotly(title="No. of SentencePieces Tokens Distribution", iteration=i, figure=fig_4, series="")
+        logger.report_plotly(title="No. of BPE Tokens Distribution", iteration=i, figure=fig_5, series="")
         if compare:
             sim_score, orig_misspelled, proc_misspelled = audit.compare_stats(raw, clean)
             sim_list.append(sim_score)
             spell_diff_list.append(abs(len(orig_misspelled)-len(proc_misspelled)))
-            logger.report_histogram("Sementic Similarity Distribution", "raw vs clean", iteration=i, values=sim_list, xaxis="Score",yaxis="Count")
-            logger.report_histogram("No. of Spelling Mistakes Difference Distribution", "raw vs clean", iteration=i, values=spell_diff_list, xaxis="Spelling Mistakes Diff",yaxis="Count")
-        
+            stat_df['semantic'] = sim_list
+            stat_df['spelling'] = spell_diff_list
+            fig_6 = px.histogram(stat_df, x='semantic')
+            fig_7 = px.histogram(stat_df, x='spelling')
+            logger.report_plotly(title="Sementic Similarity Distribution", iteration=i, figure=fig_6, series="")
+            logger.report_plotly(title="No. of Spelling Mistakes Difference Distribution", iteration=i, figure=fig_7, series="")
+    stat_df['docid'] = pq_table['docid']
