@@ -1,4 +1,4 @@
-from clearml import Task, Dataset, Logger
+from clearml import Task, Dataset, Logger, StorageManager
 
 
 Task.force_requirements_env_freeze(force=True, requirements_file='requirements.txt')
@@ -10,6 +10,8 @@ logger = task.get_logger()
 dataset = Dataset.get(dataset_name="c4_raw_clean", dataset_project="datasets/c4")
 dataset_folder = dataset.get_local_copy()
 
+model_path = StorageManager.download_folder("s3://experiment-logging/storage/all-mpnet-base-v2","modules/sentence_transformers")
+
 import pyarrow.parquet as pq
 import pandas as pd
 import os
@@ -19,7 +21,8 @@ import re
 from tqdm import tqdm
 from spellchecker import SpellChecker
 from transformers import AutoTokenizer
-from sentence_transformers import SentenceTransformer, util
+from modules.sentence_transformers import SentenceTransformer, util
+from clearml import Task, Dataset, Logger
 
 class AutoAudit:
 
@@ -49,7 +52,7 @@ class AutoAudit:
 
 
     def compare_stats(self, orig_text, proc_text):
-        model = SentenceTransformer('modules/sentence-transformers/all-mpnet-base-v2')
+        model = SentenceTransformer(model_path)
         orig_sentiment_list = self.sent_proc(model, orig_text)
         proc_sentiment_list = self.sent_proc(model, proc_text)
         orig_doc = np.mean(orig_sentiment_list, axis=0)
@@ -75,7 +78,7 @@ if __name__ == "__main__":
     sim_list = []
     spell_diff_list = []
 
-    for i, (raw, clean) in tqdm(enumerate(zip(raw_text_list,clean_text_list), total = len(raw_text_list))):
+    for i, (raw, clean) in tqdm(enumerate(zip(raw_text_list,clean_text_list)), total = len(raw_text_list)):
         word_len, sent_len, wp_len, sp_len, bpe_len = audit.gen_stats(raw)
         word_len_list.append(word_len)
         sent_len_list.append(sent_len)
@@ -86,6 +89,6 @@ if __name__ == "__main__":
             sim_score, orig_misspelled, proc_misspelled = audit.compare_stats(raw, clean)
             sim_list.append(sim_score)
             spell_diff_list.append(abs(len(orig_misspelled)-len(proc_misspelled)))
-            Logger.current_logger().report_histogram("Sementic Similarity Distribution", "raw vs clean", iteration=i, values=sim_list, xaxis="Score",yaxis="Count")
-            Logger.current_logger().report_histogram("No. of Spelling Mistakes Difference Distribution", "raw vs clean", iteration=i, values=spell_diff_list, xaxis="Spelling Mistakes Diff",yaxis="Count")
+            logger.report_histogram("Sementic Similarity Distribution", "raw vs clean", iteration=i, values=sim_list, xaxis="Score",yaxis="Count")
+            logger.report_histogram("No. of Spelling Mistakes Difference Distribution", "raw vs clean", iteration=i, values=spell_diff_list, xaxis="Spelling Mistakes Diff",yaxis="Count")
         

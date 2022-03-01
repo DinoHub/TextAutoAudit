@@ -10,3 +10,5 @@ nltk
 sentencepiece
 huggingface-hub
 pyspellchecker
+clearml
+pyarrow
