@@ -1,14 +1,5 @@
-from spellchecker import SpellChecker
-from transformers import AutoTokenizer
-from sentence_transformers import SentenceTransformer, util
 from clearml import Task, Dataset, Logger
-import pyarrow.parquet as pq
-import pandas as pd
-import os
-import numpy as np
-import spacy
-import re
-from tqdm import tqdm
+
 
 Task.force_requirements_env_freeze(force=True, requirements_file='requirements.txt')
 task = Task.init(project_name='incubation c4', task_name='auto-audit', output_uri="s3://experiment-logging/storage/")
@@ -18,6 +9,17 @@ logger = task.get_logger()
 
 dataset = Dataset.get(dataset_name="c4_raw_clean", dataset_project="datasets/c4")
 dataset_folder = dataset.get_local_copy()
+
+import pyarrow.parquet as pq
+import pandas as pd
+import os
+import numpy as np
+import spacy
+import re
+from tqdm import tqdm
+from spellchecker import SpellChecker
+from transformers import AutoTokenizer
+from sentence_transformers import SentenceTransformer, util
 
 class AutoAudit:
 
