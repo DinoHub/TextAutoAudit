@@ -10,6 +10,7 @@ logger = task.get_logger()
 dataset = Dataset.get(dataset_name="c4_raw_clean", dataset_project="datasets/c4")
 dataset_folder = dataset.get_local_copy()
 
+
 model_path = StorageManager.download_folder("s3://experiment-logging/storage/all-mpnet-base-v2")
 
 import sys
@@ -22,20 +23,21 @@ import spacy
 import re
 from tqdm import tqdm
 from spellchecker import SpellChecker
-from transformers import AutoTokenizer
+from transformers import BertTokenizerFast, T5TokenizerFast, GPT2TokenizerFast
 from sentence_transformers import SentenceTransformer, util
 from clearml import Task, Dataset, Logger
 import plotly.express as px
 import itertools
+import hydra
 
 class AutoAudit:
 
     def __init__(self, offline):
         self.offline = offline
         self.nlp = spacy.load('modules/spacy/en_core_web_sm-3.2.0/en_core_web_sm/en_core_web_sm-3.2.0')
-        self.wp_tokenizer = AutoTokenizer.from_pretrained("modules/tokenizers/word-piece") #bert
-        self.sp_tokenizer = AutoTokenizer.from_pretrained("modules/tokenizers/sentence-piece") #t5
-        self.bpe_tokenizer = AutoTokenizer.from_pretrained("modules/tokenizers/byte-pair") #gpt2
+        self.wp_tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased") #bert
+        self.sp_tokenizer = T5TokenizerFast.from_pretrained("t5-small") #t5
+        self.bpe_tokenizer = GPT2TokenizerFast.from_pretrained("gpt2") #gpt2
         self.spell = SpellChecker()
 
     def chunks(self, lst, n):
@@ -49,10 +51,16 @@ class AutoAudit:
         sent_len = len(sents)
         if batch_size>0:
             batch_sents = self.chunks(sents,batch_size)
+            wp_len_ls = []
+            sp_len_ls = []
+            bpe_len_ls = []
             for batch in batch_sents:
-                wp_len = len(list(itertools.chain.from_iterable(self.wp_tokenizer(batch, truncation=False)['input_ids'])))
-                sp_len = len(list(itertools.chain.from_iterable(self.sp_tokenizer(batch, truncation=False)['input_ids'])))
-                bpe_len = len(list(itertools.chain.from_iterable(self.bpe_tokenizer(batch, truncation=False)['input_ids'])))
+                wp_len_ls += list(itertools.chain.from_iterable(self.wp_tokenizer(batch, truncation=False)['input_ids']))
+                sp_len_ls += list(itertools.chain.from_iterable(self.sp_tokenizer(batch, truncation=False)['input_ids']))
+                bpe_len_ls += list(itertools.chain.from_iterable(self.bpe_tokenizer(batch, truncation=False)['input_ids']))
+            wp_len = len(wp_len_ls)
+            sp_len = len(sp_len_ls)
+            bpe_len = len(bpe_len_ls)
         else:
             wp_len = len(self.wp_tokenizer(text, truncation=False)['input_ids'])
             sp_len = len(self.sp_tokenizer(text, truncation=False)['input_ids'])
@@ -78,12 +86,21 @@ class AutoAudit:
         proc_misspelled = self.spell.unknown(re.sub(r"[,.;@#?!&$]+\ *"," ",proc_text).split())
         return sim_score, orig_misspelled, proc_misspelled
         
-if __name__ == "__main__":
+
+@hydra.main(config_path='.', config_name="config")
+def main(cfg):
+    #args
+    sample_size = cfg["sample_size"]
+    compare = cfg["compare"]
+    offline = cfg["offline"]
+
+    #main code
     pq_table = pq.read_table(dataset_folder)
     pq_table = pq_table.to_pandas()
+    pq_table = pq_table.sample(n=sample_size)
 
-    audit = AutoAudit(offline=True)
-    compare = True
+
+    audit = AutoAudit(offline=offline)
     raw_text_list = pq_table['raw'].tolist()
     clean_text_list = pq_table['clean'].tolist()
     word_len_list = []
@@ -127,4 +144,7 @@ if __name__ == "__main__":
             fig_7 = px.histogram(stat_df, x='spelling')
             logger.report_plotly(title="Sementic Similarity Distribution", iteration=i, figure=fig_6, series="")
             logger.report_plotly(title="No. of Spelling Mistakes Difference Distribution", iteration=i, figure=fig_7, series="")
-    stat_df['docid'] = pq_table['docid']
+    stat_df['doc_id'] = pq_table['doc_id']
+
+if __name__ == "__main__":
+    main()

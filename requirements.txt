@@ -14,3 +14,4 @@ clearml
 pyarrow
 spacy==3.2.0
 plotly
+hydra-core
