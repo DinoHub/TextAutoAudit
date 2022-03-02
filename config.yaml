@@ -1,3 +1,10 @@
 sample_size: 100
 compare: True
 offline: True
+
+hydra:
+  run:
+    dir: .
+  job_logging:
+    root:
+      handlers: null
